@@ -47,7 +47,7 @@ int main(int argc, char const *argv[])
 	close(network_socket);
 	*/
 
-	solUsername();
+	solUsername(network_socket);
 	
 	bool salir = false;
 	while(salir != true){
@@ -59,9 +59,10 @@ int main(int argc, char const *argv[])
 	return 0;
 }
 
-void solUsername(){
+void solUsername(int network_socket){
 	printf("Inserte su Username: ");
 	scanf("%s", username);
+	send(network_socket, username, sizeof(username), 0);
 }
 
 bool menu(){

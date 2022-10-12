@@ -1,12 +1,25 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/time.h>
 
 int main(int argc, char const *argv[])
 {
-	char server_message[256] = "Hello world";
+
+	fd_set readfds;
+	int list_socket[30], i;
+	char usernames[30];
+	
+	// initialize list_socket[] to 0
+	for (i = 0; i < 30; i++){
+		list_socket[i] = 0;
+	}
+	for (i = 0; i < 30; i++){
+		usernames[i] = 0;
+	}
 
 	// create the server socket
 	int server_socket;
@@ -22,13 +35,63 @@ int main(int argc, char const *argv[])
 	bind(server_socket, (struct sockaddr *) &server_address, sizeof(server_address));
 
 	// listen to connections
-	listen(server_socket, 3);
+	if (listen(server_socket, 3) < 0){
+		perror(listen);
+		exit(EXIT_FAILURE);
+	}
 
+	int max_sd;
+	int sd;
 	int client_socket;
-	client_socket = accept(server_socket, NULL, NULL);
+	int addrlen = sizeof(server_address);
+	char username_response[256];
+	while(1){
+		// clear socket set
+		FD_ZERO(&readfds);
 
+		FD_SET(server_socket, &readfds);
+		max_sd = server_socket;
+
+		for (i = 0; i < 30; i++){
+			sd = list_socket[i];
+
+			if (sd > 0)
+				FD_SET(sd, &readfds);
+
+			if (sd > max_sd)
+				max_sd = sd;
+		}
+
+		if (FD_ISSET(server_socket, &readfds)){
+			if ((client_socket = accept(server_socket, (struct sockaddr *) &server_address, (socklen_t*) &addrlen)) < 0){
+				perror("accept");
+				exit(EXIT_FAILURE);
+			}
+
+			for (i = 0; i < 30; i++){
+				if (list_socket[i] == 0){
+					list_socket[i] = client_socket;
+
+					recv(client_socket, &username_response, sizeof(username_response), 0);
+					usernames[i] = username_response;
+					printf(username_response);
+					break;
+				}
+			}
+		}
+
+		for (i = 0; i < 30; i++){
+			sd = list_socket[i];
+
+			if (FD_ISSET(sd, &readfds)){
+				close(sd);
+				list_socket[i] = 0;
+			}
+		}
+	}
+	
 	// send message
-	send(client_socket, server_message, sizeof(server_message), 0);
+	//send(client_socket, server_message, sizeof(server_message), 0);
 
 	// close socket
 	close(server_socket);
