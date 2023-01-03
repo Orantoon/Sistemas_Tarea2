@@ -1,100 +1,174 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <stdbool.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <sys/time.h>
+#include <arpa/inet.h>
+
+#define PORT 4444
+
+// Global Variables
+char buffer[1024];
+
+int new_socket;
+
+char usernames[30][256];
+int currentUser = 0;
+
+void safeUN();
+void optionRecv();
+void nuevaConv();
+void nuevoGrupo();
+void cantUsuarios();
+void listaUsuarios();
+
+// recv(new_socket, buffer, 1024, 0);			RECEIVE
+// send(new_socket, buffer, strlen(buffer), 0);	SEND
 
 int main(int argc, char const *argv[])
 {
-
-	fd_set readfds;
-	int list_socket[30], i;
-	char usernames[30];
 	
-	// initialize list_socket[] to 0
-	for (i = 0; i < 30; i++){
-		list_socket[i] = 0;
-	}
-	for (i = 0; i < 30; i++){
-		usernames[i] = 0;
-	}
+	// create a socket
+	int server_socket, ret;
+	struct sockaddr_in server_address;
 
-	// create the server socket
-	int server_socket;
+	struct sockaddr_in new_address;
+	
+	socklen_t addr_size;
+	
+	pid_t childpid;
+	
+	for (int i = 0; i < 30; i++){
+		strcpy(usernames[i], "");
+	}
+	
 	server_socket = socket(AF_INET, SOCK_STREAM, 0);
+	if (server_socket < 0){
+		printf("Error in the connection.\n\n");
+		exit(1);
+	}
+	
+	printf("Server Socket created successfully!\n\n");
 
 	// define the server address
-	struct sockaddr_in server_address;
+	memset(&server_address, '\0', sizeof(server_address));
 	server_address.sin_family = AF_INET;
-	server_address.sin_port = htons(9001);
+	server_address.sin_port = htons(PORT);
 	server_address.sin_addr.s_addr = INADDR_ANY;
 
 	// bind the socket to our specified IP and port
-	bind(server_socket, (struct sockaddr *) &server_address, sizeof(server_address));
-
-	// listen to connections
-	if (listen(server_socket, 3) < 0){
-		perror(listen);
-		exit(EXIT_FAILURE);
-	}
-
-	int max_sd;
-	int sd;
-	int client_socket;
-	int addrlen = sizeof(server_address);
-	char username_response[256];
-	while(1){
-		// clear socket set
-		FD_ZERO(&readfds);
-
-		FD_SET(server_socket, &readfds);
-		max_sd = server_socket;
-
-		for (i = 0; i < 30; i++){
-			sd = list_socket[i];
-
-			if (sd > 0)
-				FD_SET(sd, &readfds);
-
-			if (sd > max_sd)
-				max_sd = sd;
-		}
-
-		if (FD_ISSET(server_socket, &readfds)){
-			if ((client_socket = accept(server_socket, (struct sockaddr *) &server_address, (socklen_t*) &addrlen)) < 0){
-				perror("accept");
-				exit(EXIT_FAILURE);
-			}
-
-			for (i = 0; i < 30; i++){
-				if (list_socket[i] == 0){
-					list_socket[i] = client_socket;
-
-					recv(client_socket, &username_response, sizeof(username_response), 0);
-					usernames[i] = username_response;
-					printf(username_response);
-					break;
-				}
-			}
-		}
-
-		for (i = 0; i < 30; i++){
-			sd = list_socket[i];
-
-			if (FD_ISSET(sd, &readfds)){
-				close(sd);
-				list_socket[i] = 0;
-			}
-		}
+	ret = bind(server_socket, (struct sockaddr*)&server_address, sizeof(server_address));
+	if (ret < 0){
+		printf("Error in binding.\n\n");
+		exit(1);
 	}
 	
-	// send message
-	//send(client_socket, server_message, sizeof(server_message), 0);
+	printf("Binded to port %d.\n\n", PORT);
 
+	// listen to connections
+	if (listen(server_socket, 10) == 0){
+		printf("Listening...\n\n");
+	} else {
+		printf("Error in binding.\n\n");
+	}
+	
+	// ===============================================
+	
+	while (true){
+	
+		new_socket = accept(server_socket, (struct sockaddr*)&new_address, &addr_size);
+		if (new_socket < 0){
+			exit(1);
+		}
+		
+		printf("Connection accepted from %s:%d.\n\n", inet_ntoa(new_address.sin_addr), ntohs(new_address.sin_port));
+		
+		// Accept usernames
+		recv(new_socket, buffer, 1024, 0);
+		safeUN();
+		
+		if ((childpid = fork()) == 0){
+		
+			close(server_socket);
+
+			while (true){
+			
+				// Gets option from the client
+				optionRecv();
+
+			}
+		}
+	
+	}
+	
 	// close socket
-	close(server_socket);
+	printf("Nos vemos!\n");
+	//close(server_socket);
 
 	return 0;
 }
+
+void safeUN(){
+	strcpy(usernames[currentUser], buffer);
+	printf("Hello %s!\n\n", usernames[currentUser]);
+	
+	currentUser++;
+	bzero(buffer, sizeof(buffer));
+}
+
+void optionRecv(){
+	recv(new_socket, buffer, 1024, 0);
+
+	int opcion = atoi(buffer);
+	bzero(buffer, sizeof(buffer));
+	
+	switch(opcion){
+		case 1:
+			nuevaConv();
+			break;
+		case 2:
+			nuevoGrupo();
+			break;
+		case 3:
+			cantUsuarios();
+			break;
+		case 4:
+			listaUsuarios();
+	}
+}
+
+void nuevaConv(){
+	printf("Nueva conversacion\n");
+}
+
+void nuevoGrupo(){
+	printf("Nuevo grupo\n");
+}
+
+void cantUsuarios(){
+	int res = 0;
+	
+	for (int i = 0; i < 30; i++){
+		if (strcmp(usernames[i], "") == 0){
+			continue;
+		}
+		res++;
+	}
+	
+	sprintf(buffer, "%d", res);
+	
+	printf("Se encontraron %s usuarios conectados.\n\n", buffer);
+	
+	send(new_socket, buffer, strlen(buffer), 0);
+	bzero(buffer, sizeof(buffer));
+}
+
+void listaUsuarios(){
+	printf("Lista de usuarios\n");
+}
+
+
+

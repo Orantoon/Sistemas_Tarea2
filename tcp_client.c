@@ -1,12 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <stdbool.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+
+#define PORT 4444
 
 // Global Variables
+char buffer[1024];
+
+int client_socket;
+
 char username [256];
+
 void solUsername();
 bool menu();
 void nuevaConv();
@@ -14,55 +24,59 @@ void nuevoGrupo();
 void cantUsuarios();
 void listaUsuarios();
 
+// recv(client_socket, buffer, 1024, 0);		RECEIVE
+// send(client_socket, buffer, sizeof(buffer), 0);	SEND
+
 int main(int argc, char const *argv[])
 {
 	// create a socket
-	int network_socket;
-	network_socket = socket(AF_INET, SOCK_STREAM, 0);
-
-	// specify an address for the socket
+	int ret;
+	
 	struct sockaddr_in server_address;
-	server_address.sin_family = AF_INET;
-	server_address.sin_port = htons(9001);
-	server_address.sin_addr.s_addr = INADDR_ANY;
-
-	int connection_status = connect(network_socket, (struct sockaddr *) &server_address, sizeof(server_address));
-
-	// check for error in the connection
-	if (connection_status == -1){
-		printf("Error connecting to socket \n\n");
-		close(network_socket);
-		//return 0;
+	
+	client_socket = socket(AF_INET, SOCK_STREAM, 0);
+	if (client_socket < 0){
+		printf("Error connecting to socket.\n\n");
+		exit(1);
 	}
+	
+	printf("Client Socket created successfully!\n\n");
+	
+	// specify an address for the socket
+	memset(&server_address, '\0', sizeof(server_address));
+	server_address.sin_family = AF_INET;
+	server_address.sin_port = htons(PORT);
+	server_address.sin_addr.s_addr = INADDR_ANY;
+	
+	// connect to server
+	ret = connect(client_socket, (struct sockaddr*)&server_address, sizeof(server_address));
+	if (ret < 0){
+		printf("Error in the connection.\n\n");
+		exit(1);
+	}
+	
+	printf("Client connected to server.\n\n");
+	
+	// ===============================================
 
-	/*
-	// recieve data from the server
-	char server_response[256];
-	recv(network_socket, &server_response, sizeof(server_response), 0);
-
-	// print out server response
-	printf("The server sent: %s\n", server_response);
-
-	// close socket
-	close(network_socket);
-	*/
-
-	solUsername(network_socket);
+	solUsername(client_socket);
 	
 	bool salir = false;
 	while(salir != true){
 		salir = menu();
 	}
 
+
+	// close socket
 	printf("Nos vemos!\n");
-	close(network_socket);
+	//close(client_socket);
 	return 0;
 }
 
-void solUsername(int network_socket){
+void solUsername(int client_socket){
 	printf("Inserte su Username: ");
 	scanf("%s", username);
-	send(network_socket, username, sizeof(username), 0);
+	send(client_socket, username, sizeof(username), 0);
 }
 
 bool menu(){
@@ -80,6 +94,12 @@ bool menu(){
 
 	scanf("%d", &opcion);
 	printf("\n");
+	
+	// The option is sent to the server so it knows what to do too
+	sprintf(buffer, "%d", opcion);
+	printf("AAAAAAAA %s AAAAAAAA\n\n", buffer);
+	send(client_socket, buffer, sizeof(buffer), 0);
+	bzero(buffer, sizeof(buffer));
 	
 	switch(opcion){
 		case 1:
@@ -110,7 +130,11 @@ void nuevoGrupo(){
 }
 
 void cantUsuarios(){
-	printf("Cantidad de usuarios\n");
+	printf("La cantidad de usuarios conectados es de: ");
+	recv(client_socket, buffer, 1024, 0);
+	printf("%s.\n\n", buffer);
+	
+	bzero(buffer, sizeof(buffer));
 }
 
 void listaUsuarios(){
