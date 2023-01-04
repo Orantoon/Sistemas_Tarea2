@@ -16,7 +16,8 @@ char buffer[1024];
 int new_socket;
 
 char usernames[30][256];
-int currentUser = 0;
+int clientsConnected[30];
+int clientCount = 0;
 
 void safeUN();
 void optionRecv();
@@ -43,6 +44,7 @@ int main(int argc, char const *argv[])
 	
 	for (int i = 0; i < 30; i++){
 		strcpy(usernames[i], "");
+		clientsConnected[i] = 0;
 	}
 	
 	server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -69,7 +71,7 @@ int main(int argc, char const *argv[])
 	printf("Binded to port %d.\n\n", PORT);
 
 	// listen to connections
-	if (listen(server_socket, 10) == 0){
+	if (listen(server_socket, 30) == 0){
 		printf("Listening...\n\n");
 	} else {
 		printf("Error in binding.\n\n");
@@ -83,6 +85,9 @@ int main(int argc, char const *argv[])
 		if (new_socket < 0){
 			exit(1);
 		}
+		
+		clientsConnected[clientCount] = new_socket;
+		clientCount++;
 		
 		printf("Connection accepted from %s:%d.\n\n", inet_ntoa(new_address.sin_addr), ntohs(new_address.sin_port));
 		
@@ -106,16 +111,15 @@ int main(int argc, char const *argv[])
 	
 	// close socket
 	printf("Nos vemos!\n");
-	//close(server_socket);
+	//close(new_socket);
 
 	return 0;
 }
 
 void safeUN(){
-	strcpy(usernames[currentUser], buffer);
-	printf("Hello %s!\n\n", usernames[currentUser]);
+	strcpy(usernames[clientCount], buffer);
+	printf("Hello %s!\n\n", usernames[clientCount]);
 	
-	currentUser++;
 	bzero(buffer, sizeof(buffer));
 }
 
@@ -149,16 +153,7 @@ void nuevoGrupo(){
 }
 
 void cantUsuarios(){
-	int res = 0;
-	
-	for (int i = 0; i < 30; i++){
-		if (strcmp(usernames[i], "") == 0){
-			continue;
-		}
-		res++;
-	}
-	
-	sprintf(buffer, "%d", res);
+	sprintf(buffer, "%d", clientCount);
 	
 	printf("Se encontraron %s usuarios conectados.\n\n", buffer);
 	
@@ -167,7 +162,19 @@ void cantUsuarios(){
 }
 
 void listaUsuarios(){
-	printf("Lista de usuarios\n");
+	printf("Lista de usuarios conectados:\n\n");
+	for (int i = 0; i < 30; i++){
+		if (strcmp(usernames[i], "") == 0){
+			continue;
+		}
+		strcat(buffer, "- ");
+		strcat(buffer, usernames[i]);
+		strcat(buffer, "\n");
+	}
+	
+	printf("%s\n\n", buffer);
+	send(new_socket, buffer, strlen(buffer), 0);
+	bzero(buffer, sizeof(buffer));
 }
 
 

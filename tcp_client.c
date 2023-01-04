@@ -97,7 +97,7 @@ bool menu(){
 	
 	// The option is sent to the server so it knows what to do too
 	sprintf(buffer, "%d", opcion);
-	printf("AAAAAAAA %s AAAAAAAA\n\n", buffer);
+	
 	send(client_socket, buffer, sizeof(buffer), 0);
 	bzero(buffer, sizeof(buffer));
 	
@@ -131,12 +131,22 @@ void nuevoGrupo(){
 
 void cantUsuarios(){
 	printf("La cantidad de usuarios conectados es de: ");
+	
+	recv(client_socket, buffer, 1024, 0);
+	printf("%s\n\n", buffer);
+	
+	bzero(buffer, sizeof(buffer));
+}
+
+void listaUsuarios(){
+	printf("La lista de usuarios conectados es:\n\n");
+	
 	recv(client_socket, buffer, 1024, 0);
 	printf("%s.\n\n", buffer);
 	
 	bzero(buffer, sizeof(buffer));
 }
 
-void listaUsuarios(){
-	printf("Lista de usuarios\n");
-}
+
+
+
