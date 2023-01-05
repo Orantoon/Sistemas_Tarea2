@@ -142,7 +142,7 @@ void listaUsuarios(){
 	printf("La lista de usuarios conectados es:\n\n");
 	
 	recv(client_socket, buffer, 1024, 0);
-	printf("%s.\n\n", buffer);
+	printf("%s\n\n", buffer);
 	
 	bzero(buffer, sizeof(buffer));
 }

@@ -7,24 +7,34 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
 #define PORT 4444
 
 // Global Variables
 char buffer[1024];
 
-int new_socket;
+struct AcceptedSocket
+{
+	int acceptedSocketFD;
+	struct sockaddr_in address;
+	int error;
+	bool acceptedSuccessfully;
+	char username[256];
+};
 
-char usernames[30][256];
-int clientsConnected[30];
-int clientCount = 0;
+struct AcceptedSocket acceptedSockets[30];
+int acceptedSocketsCount = 0;
 
-void safeUN();
-void optionRecv();
+struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD);
+void acceptNewClient(int serverSocketFD);
+void clientThread(struct AcceptedSocket *pSocket);
+void *optionRecv(int socketFD);
+
 void nuevaConv();
 void nuevoGrupo();
-void cantUsuarios();
-void listaUsuarios();
+void cantUsuarios(int socketFD);
+void listaUsuarios(int socketFD);
 
 // recv(new_socket, buffer, 1024, 0);			RECEIVE
 // send(new_socket, buffer, strlen(buffer), 0);	SEND
@@ -39,14 +49,7 @@ int main(int argc, char const *argv[])
 	struct sockaddr_in new_address;
 	
 	socklen_t addr_size;
-	
-	pid_t childpid;
-	
-	for (int i = 0; i < 30; i++){
-		strcpy(usernames[i], "");
-		clientsConnected[i] = 0;
-	}
-	
+
 	server_socket = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_socket < 0){
 		printf("Error in the connection.\n\n");
@@ -79,69 +82,78 @@ int main(int argc, char const *argv[])
 	
 	// ===============================================
 	
-	while (true){
+	acceptNewClient(server_socket);
 	
-		new_socket = accept(server_socket, (struct sockaddr*)&new_address, &addr_size);
-		if (new_socket < 0){
-			exit(1);
-		}
-		
-		clientsConnected[clientCount] = new_socket;
-		clientCount++;
-		
-		printf("Connection accepted from %s:%d.\n\n", inet_ntoa(new_address.sin_addr), ntohs(new_address.sin_port));
-		
-		// Accept usernames
-		recv(new_socket, buffer, 1024, 0);
-		safeUN();
-		
-		if ((childpid = fork()) == 0){
-		
-			close(server_socket);
-
-			while (true){
-			
-				// Gets option from the client
-				optionRecv();
-
-			}
-		}
-	
-	}
-	
-	// close socket
 	printf("Nos vemos!\n");
-	//close(new_socket);
+	shutdown(server_socket, SHUT_RDWR);
 
 	return 0;
 }
 
-void safeUN(){
-	strcpy(usernames[clientCount], buffer);
-	printf("Hello %s!\n\n", usernames[clientCount]);
+struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD){
+	struct sockaddr_in clientAddress;
+	socklen_t addr_size;
+	int clientSocketFD = accept(serverSocketFD, (struct sockaddr_in*)&clientAddress, &addr_size);
 	
+	struct AcceptedSocket* acceptedSocket = malloc(sizeof(struct AcceptedSocket));
+	acceptedSocket->address = clientAddress;
+	acceptedSocket->acceptedSocketFD = clientSocketFD;
+	acceptedSocket->acceptedSuccessfully = clientSocketFD > 0;
+	
+	// Get username
+	recv(clientSocketFD, buffer, 1024, 0);
+	
+	strcpy (acceptedSocket->username, buffer);
+	
+	printf("Hola %s!\n\n", buffer);
 	bzero(buffer, sizeof(buffer));
+	
+	
+	if (!acceptedSocket->acceptedSuccessfully)
+		acceptedSocket->error = clientSocketFD;
+		
+	return acceptedSocket;
 }
 
-void optionRecv(){
-	recv(new_socket, buffer, 1024, 0);
-
-	int opcion = atoi(buffer);
-	bzero(buffer, sizeof(buffer));
-	
-	switch(opcion){
-		case 1:
-			nuevaConv();
-			break;
-		case 2:
-			nuevoGrupo();
-			break;
-		case 3:
-			cantUsuarios();
-			break;
-		case 4:
-			listaUsuarios();
+void acceptNewClient(int serverSocketFD){
+	while(true)
+	{
+		struct AcceptedSocket* clientSocket = acceptIncomingConnection(serverSocketFD);
+		acceptedSockets[acceptedSocketsCount++] = *clientSocket;
+		
+		clientThread(clientSocket);
 	}
+}
+
+void clientThread(struct AcceptedSocket *pSocket){
+	pthread_t id;
+	pthread_create(&id, NULL, optionRecv, pSocket->acceptedSocketFD);
+}
+
+void *optionRecv(int socketFD){
+	while (true){
+		recv(socketFD, buffer, 1024, 0);
+		
+
+		int opcion = atoi(buffer);
+		bzero(buffer, sizeof(buffer));
+		
+		switch(opcion){
+			case 1:
+				nuevaConv();
+				break;
+			case 2:
+				nuevoGrupo();
+				break;
+			case 3:
+				cantUsuarios(socketFD);
+				break;
+			case 4:
+				listaUsuarios(socketFD);
+		}
+	}
+	
+	close(socketFD);
 }
 
 void nuevaConv(){
@@ -152,28 +164,28 @@ void nuevoGrupo(){
 	printf("Nuevo grupo\n");
 }
 
-void cantUsuarios(){
-	sprintf(buffer, "%d", clientCount);
+void cantUsuarios(int socketFD){
+	sprintf(buffer, "%d", acceptedSocketsCount);
 	
 	printf("Se encontraron %s usuarios conectados.\n\n", buffer);
 	
-	send(new_socket, buffer, strlen(buffer), 0);
+	send(socketFD, buffer, strlen(buffer), 0);
 	bzero(buffer, sizeof(buffer));
 }
 
-void listaUsuarios(){
+void listaUsuarios(int socketFD){
 	printf("Lista de usuarios conectados:\n\n");
 	for (int i = 0; i < 30; i++){
-		if (strcmp(usernames[i], "") == 0){
+		if (strcmp(acceptedSockets[i].username, "") == 0){
 			continue;
 		}
 		strcat(buffer, "- ");
-		strcat(buffer, usernames[i]);
+		strcat(buffer, acceptedSockets[i].username);
 		strcat(buffer, "\n");
 	}
 	
 	printf("%s\n\n", buffer);
-	send(new_socket, buffer, strlen(buffer), 0);
+	send(socketFD, buffer, strlen(buffer), 0);
 	bzero(buffer, sizeof(buffer));
 }
 
