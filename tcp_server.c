@@ -30,6 +30,7 @@ struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD);
 void acceptNewClient(int serverSocketFD);
 void clientThread(struct AcceptedSocket *pSocket);
 void *optionRecv(int socketFD);
+void clientLeft(int socketFD);
 
 void nuevaConv();
 void nuevoGrupo();
@@ -93,7 +94,7 @@ int main(int argc, char const *argv[])
 struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD){
 	struct sockaddr_in clientAddress;
 	socklen_t addr_size;
-	int clientSocketFD = accept(serverSocketFD, (struct sockaddr_in*)&clientAddress, &addr_size);
+	int clientSocketFD = accept(serverSocketFD, (struct sockaddr*)&clientAddress, &addr_size);
 	
 	struct AcceptedSocket* acceptedSocket = malloc(sizeof(struct AcceptedSocket));
 	acceptedSocket->address = clientAddress;
@@ -131,7 +132,8 @@ void clientThread(struct AcceptedSocket *pSocket){
 }
 
 void *optionRecv(int socketFD){
-	while (true){
+	bool cerrar = false;
+	while (!cerrar){
 		recv(socketFD, buffer, 1024, 0);
 		
 
@@ -150,8 +152,23 @@ void *optionRecv(int socketFD){
 				break;
 			case 4:
 				listaUsuarios(socketFD);
+				break;
+			case 5:
+				cerrar = true;
 		}
 	}
+	
+	clientLeft(socketFD);	
+}
+
+void clientLeft(int socketFD){
+	for (int i = 0; i < acceptedSocketsCount; i++){
+		if (acceptedSockets[i].acceptedSocketFD == socketFD){
+			acceptedSockets[i].acceptedSocketFD = 0;
+			strcpy (acceptedSockets[i].username, "");
+		}
+	}
+	acceptedSocketsCount--;
 	
 	close(socketFD);
 }
