@@ -17,14 +17,13 @@ char buffer[1024];
 int client_socket;
 
 char username [256];
-bool convPriv = false;
 
 void solUsername();
-bool menu();
-void nuevaConv();
-void esperarUsuario(char user[256]);
 void threadResp();
 void leerResp();
+
+bool menu();
+void nuevaConv();
 
 void menuConv();
 void enviarMensaje();
@@ -58,6 +57,12 @@ int main(int argc, char const *argv[])
 	server_address.sin_port = htons(PORT);
 	server_address.sin_addr.s_addr = INADDR_ANY;
 	
+	int yes = 1;
+	if (setsockopt(client_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1){
+		perror("setsockopt");
+		exit(1);
+	}	
+	
 	// connect to server
 	ret = connect(client_socket, (struct sockaddr*)&server_address, sizeof(server_address));
 	if (ret < 0){
@@ -70,6 +75,7 @@ int main(int argc, char const *argv[])
 	// ===============================================
 
 	solUsername(client_socket);
+	threadResp();
 	
 	bool salir = false;
 	while(salir != true){
@@ -79,14 +85,30 @@ int main(int argc, char const *argv[])
 
 	// close socket
 	printf("Nos vemos!\n");
-	//close(client_socket);
+	close(client_socket);
 	return 0;
 }
 
 void solUsername(int client_socket){
 	printf("Inserte su Username: ");
-	scanf("%s", username);
+	scanf("%[^\n]", username);
 	send(client_socket, username, sizeof(username), 0);
+}
+
+void threadResp(){
+	pthread_t id;
+	pthread_create(&id, NULL, leerResp, NULL);
+}
+
+void leerResp(){
+	char message[1024];
+	bzero(message, sizeof(message));
+	while (true){
+		recv(client_socket, message, 1024, 0);
+		
+		printf("%s\n\n", message);
+		bzero(message, sizeof(message));
+	}
 }
 
 bool menu(){
@@ -131,11 +153,14 @@ bool menu(){
 	return false;
 }
 
+
 void nuevaConv(){
 	char user [256];
 	while (true){
 		printf("Escriba el Username de la persona con la que quisiera iniciar una nueva conversacion: ");
-		scanf("%s\n\n", user);
+		
+		scanf(" %[^\n]", user);
+		printf("\n\n");
 		
 		send(client_socket, user, sizeof(user), 0);
 		
@@ -149,52 +174,16 @@ void nuevaConv(){
 		bzero(buffer, sizeof(buffer));
 	}
 	
-	esperarUsuario(user);
-	
-	convPriv = true;
 	printf("\n--- CHAT CON %s ---\n\n", user);
+
 	menuConv();
-}
-
-void esperarUsuario(char user[256]){
-	printf("\n Esperando a que %s se conecte...\n\n", user);
-	while (true){
-		recv(client_socket, buffer, 1024, 0);
-		if (strcmp(buffer, "Conectado") == 0){
-			bzero(buffer, sizeof(buffer));
-			break;
-		}
-		bzero(buffer, sizeof(buffer));
-	}
-	
-	threadResp();
-	menuConv();
-}
-
-void threadResp(){
-	pthread_t id;
-	pthread_create(&id, NULL, leerResp, NULL);
-}
-
-void leerResp(){
-	char message[1024];
-	while (true){
-		recv(client_socket, message, 1024, 0);
-		
-		if (strcmp(message, "_EXIT_")){
-			printf("El usuario se ha desconectado, volviendo al menu principal ...\n\n");
-			break;
-		}
-		printf("<- %s\n\n", message);
-		bzero(message, sizeof(message));
-	}
 }
 
 void menuConv(){
 	bool salir = false;
-	int opcion;
+	int op;
 	
-	while (!salir && convPriv){
+	while (!salir){
 		
 		printf("---------------------------------\n");
 		printf("Seleccione una accion a realizar:\n\n");
@@ -203,10 +192,10 @@ void menuConv(){
 		printf("2. Enviar un archivo.\n");
 		printf("3. Abandonar conversacion.\n\n");
 
-		scanf("%d", &opcion);
+		scanf("%d", &op);
 		printf("\n\n");
 		
-		switch(opcion){
+		switch(op){
 			case 1:
 				enviarMensaje();
 				break;
@@ -224,11 +213,12 @@ void menuConv(){
 
 void enviarMensaje(){
 	char mensaje [1024];
-	scanf("%s\n\n", mensaje);
+	scanf(" %[^\n]", mensaje);
+	printf("\n\n");
 	
-	strcpy(buffer, "-> ");
+	strcpy(buffer, "[Mensaje Privado | ");
 	strcat(buffer, username);
-	strcat(buffer, ": ");
+	strcat(buffer, "]: ");
 	strcat(buffer, mensaje);
 	
 	send(client_socket, buffer, sizeof(buffer), 0);

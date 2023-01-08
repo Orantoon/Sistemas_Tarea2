@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <errno.h>
 
 #define PORT 4444
 
@@ -36,7 +37,6 @@ void clientLeft(struct AcceptedSocket *pSocket);
 void nuevaConv(struct AcceptedSocket *pSocket);
 bool existeUser(char asking[256], char user[256]);
 int getSocket(char asking[256], char user[256]);
-void esperarUser(struct AcceptedSocket *pSocket);
 void chatPriv(struct AcceptedSocket *pSocket);
 
 void nuevoGrupo();
@@ -51,6 +51,7 @@ int main(int argc, char const *argv[])
 	
 	// create a socket
 	int server_socket, ret;
+	
 	struct sockaddr_in server_address;
 
 	struct sockaddr_in new_address;
@@ -71,6 +72,12 @@ int main(int argc, char const *argv[])
 	server_address.sin_port = htons(PORT);
 	server_address.sin_addr.s_addr = INADDR_ANY;
 
+	int yes = 1;
+	if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1){
+		perror("setsockopt");
+		exit(1);
+	}	
+	
 	// bind the socket to our specified IP and port
 	ret = bind(server_socket, (struct sockaddr*)&server_address, sizeof(server_address));
 	if (ret < 0){
@@ -109,7 +116,9 @@ struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD){
 	acceptedSocket->convPriv = 0;
 	
 	// Get username
-	recv(clientSocketFD, buffer, 1024, 0);
+	ssize_t size;
+	if ((size = recv(clientSocketFD, buffer, 1024, 0)) == -1)
+		fprintf(stderr, "recv: %s (%d)\n", strerror(errno), errno);
 	
 	strcpy (acceptedSocket->username, buffer);
 	
@@ -177,7 +186,7 @@ void clientLeft(struct AcceptedSocket *pSocket){
 	}
 	acceptedSocketsCount--;
 	
-	close(pSocket->acceptedSocketFD);
+	//close(pSocket->acceptedSocketFD);
 }
 
 
@@ -204,7 +213,7 @@ void nuevaConv(struct AcceptedSocket *pSocket){
 	
 	pSocket->convPriv = getSocket(pSocket->username, user);
 	
-	esperarUser(pSocket);
+	chatPriv(pSocket);
 }
 
 bool existeUser(char asking[256], char user[256]){
@@ -225,33 +234,13 @@ int getSocket(char asking[256], char user[256]){
 	return -1;
 }
 
-void esperarUser(struct AcceptedSocket *pSocket){
-	bool salir = false;
-	while (!salir){
-		for (int i = 0; i < 30; i++){
-			if (acceptedSockets[i].acceptedSocketFD == pSocket->convPriv){
-				printf("%d\n\n",acceptedSockets[i].convPriv);
-				if (acceptedSockets[i].convPriv == pSocket->acceptedSocketFD){
-					printf("B\n\n");
-					salir = true;
-					break;
-				}
-			}
-		}
-	}
-	
-	strcpy (buffer, "Conectado");
-	send(pSocket->acceptedSocketFD, buffer, strlen(buffer), 0);
-	bzero(buffer, sizeof(buffer));
-	
-	chatPriv(pSocket);
-}
 
 void chatPriv(struct AcceptedSocket *pSocket){
 	while(true){
 		recv(pSocket->acceptedSocketFD, buffer, 1024, 0);
 		
 		if (strcmp(buffer, "_EXIT_") == 0){
+			pSocket->convPriv = 0;
 			send(pSocket->convPriv, buffer, strlen(buffer), 0);
 			bzero(buffer, sizeof(buffer));
 			break;
