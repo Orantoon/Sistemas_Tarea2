@@ -15,6 +15,7 @@
 // Global Variables
 char buffer[1024];
 
+// Estructura del cliente
 struct AcceptedSocket
 {
 	int acceptedSocketFD;
@@ -23,31 +24,43 @@ struct AcceptedSocket
 	bool acceptedSuccessfully;
 	char username[256];
 	int convPriv;	// socket del cliente con el que se hablara de forma privada
+	int convGrup[10];	// sockets de clientes a los que se les hablara de forma grupal
 };
 
+FILE *serverLog;
+
+// Clientes conectados
 struct AcceptedSocket acceptedSockets[30];
 int acceptedSocketsCount = 0;
 
+// Proceso de aceptar un nuevo cliente
 struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD);
 void acceptNewClient(int serverSocketFD);
 void clientThread(struct AcceptedSocket *pSocket);
 void optionRecv(struct AcceptedSocket *pSocket);
 void clientLeft(struct AcceptedSocket *pSocket);
 
+// Opcion de conversacion privada entre clientes
 void nuevaConv(struct AcceptedSocket *pSocket);
-bool existeUser(char asking[256], char user[256]);
+bool existeUser(char username[256], char user[256]);
 int getSocket(char asking[256], char user[256]);
 void chatPriv(struct AcceptedSocket *pSocket);
 
-void nuevoGrupo();
-void cantUsuarios(int socketFD);
-void listaUsuarios(int socketFD);
+// Opcion de conversacion grupal entre clientes
+void nuevoGrupo(struct AcceptedSocket *pSocket);
+void chatGrup(struct AcceptedSocket *pSocket);
+
+// Otras consultas de los clientes
+void cantUsuarios(struct AcceptedSocket *pSocket);
+void listaUsuarios(struct AcceptedSocket *pSocket);
 
 // recv(new_socket, buffer, 1024, 0);			RECEIVE
 // send(new_socket, buffer, strlen(buffer), 0);	SEND
 
+
 int main(int argc, char const *argv[])
 {
+	// ---------- Configuracion de Sockets -----------
 	
 	// create a socket
 	int server_socket, ret;
@@ -94,15 +107,18 @@ int main(int argc, char const *argv[])
 		printf("Error in binding.\n\n");
 	}
 	
-	// ===============================================
+	// -------------------------------------------
 	
 	acceptNewClient(server_socket);
 	
 	printf("Nos vemos!\n");
+	
 	shutdown(server_socket, SHUT_RDWR);
 
 	return 0;
 }
+
+// ===============================================
 
 struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD){
 	struct sockaddr_in clientAddress;
@@ -115,6 +131,9 @@ struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD){
 	acceptedSocket->acceptedSuccessfully = clientSocketFD > 0;
 	acceptedSocket->convPriv = 0;
 	
+	for (int i = 0; i < 10; i++)
+		acceptedSocket->convGrup[i] = 0;
+	
 	// Get username
 	ssize_t size;
 	if ((size = recv(clientSocketFD, buffer, 1024, 0)) == -1)
@@ -123,6 +142,11 @@ struct AcceptedSocket* acceptIncomingConnection(int serverSocketFD){
 	strcpy (acceptedSocket->username, buffer);
 	
 	printf("Hola %s!\n\n", buffer);
+	
+	serverLog = fopen("serverLog.txt", "a");
+	fprintf(serverLog, "%s %s %s", "Se ha conectado el cliente ", buffer, "\n");
+	fclose(serverLog);
+	
 	bzero(buffer, sizeof(buffer));
 	
 	
@@ -161,13 +185,13 @@ void optionRecv(struct AcceptedSocket *pSocket){
 				nuevaConv(pSocket);
 				break;
 			case 2:
-				nuevoGrupo();
+				nuevoGrupo(pSocket);
 				break;
 			case 3:
-				cantUsuarios(pSocket->acceptedSocketFD);
+				cantUsuarios(pSocket);
 				break;
 			case 4:
-				listaUsuarios(pSocket->acceptedSocketFD);
+				listaUsuarios(pSocket);
 				break;
 			case 5:
 				cerrar = true;
@@ -178,7 +202,12 @@ void optionRecv(struct AcceptedSocket *pSocket){
 }
 
 void clientLeft(struct AcceptedSocket *pSocket){
-	printf("El cliente %s se ha desconectado.", pSocket->username);
+	printf("El cliente %s se ha desconectado.\n\n", pSocket->username);
+	
+	serverLog = fopen("serverLog.txt", "a");
+	fprintf(serverLog, "%s %s %s", "Se ha desconectado el cliente ", pSocket->username, "\n");
+	fclose(serverLog);
+	
 	for (int i = 0; i < acceptedSocketsCount; i++){
 		if (acceptedSockets[i].acceptedSocketFD == pSocket->acceptedSocketFD){
 			acceptedSockets[i] = acceptedSockets[i + 1];
@@ -186,12 +215,14 @@ void clientLeft(struct AcceptedSocket *pSocket){
 	}
 	acceptedSocketsCount--;
 	
-	//close(pSocket->acceptedSocketFD);
+	close(pSocket->acceptedSocketFD);
 }
 
+// ===============================================
 
 void nuevaConv(struct AcceptedSocket *pSocket){
 	char user[256];
+	pSocket->convPriv = 0;
 
 	while (true){
 		recv(pSocket->acceptedSocketFD, buffer, 1024, 0);
@@ -216,9 +247,9 @@ void nuevaConv(struct AcceptedSocket *pSocket){
 	chatPriv(pSocket);
 }
 
-bool existeUser(char asking[256], char user[256]){
+bool existeUser(char username[256], char user[256]){
 	for (int i = 0; i < 30; i++){
-		if (strcmp(acceptedSockets[i].username, asking) != 0 && strcmp(acceptedSockets[i].username, user) == 0){
+		if (strcmp(acceptedSockets[i].username, username) != 0 && strcmp(acceptedSockets[i].username, user) == 0){
 			return true;
 		}
 	}
@@ -246,37 +277,132 @@ void chatPriv(struct AcceptedSocket *pSocket){
 			break;
 		}
 		
+		serverLog = fopen("serverLog.txt", "a");
+		fprintf(serverLog, "%s %s %s", "Se envio el siguiente mensaje privado -> ", buffer, "\n");
+		fclose(serverLog);
+		
 		send(pSocket->convPriv, buffer, strlen(buffer), 0);
 		bzero(buffer, sizeof(buffer));
 	}
 }
 
-void nuevoGrupo(){
-	printf("Nuevo grupo\n");
+// ===============================================
+
+void nuevoGrupo(struct AcceptedSocket *pSocket){
+	char user[256];
+	int i = 0;
+	
+	char users[10][256];
+	bool repUser = false;
+	int k = 0;
+	
+	for (int i = 0; i < 10; i++){
+		strcpy(users[i], "");
+		pSocket->convGrup[i] = 0;
+	}
+
+	while (true){
+		recv(pSocket->acceptedSocketFD, buffer, 1024, 0);
+
+		strcpy (user, buffer);
+		bzero(buffer, sizeof(buffer));
+		
+		if (strcmp(user, "DONE") == 0){
+			break;
+		}
+		
+		for (int j = 0; j < 10; j++){
+			if (strcmp(users[j], user) == 0){
+				strcpy (buffer, "Usuario NO Encontrado");
+				send(pSocket->acceptedSocketFD, buffer, strlen(buffer), 0);
+				bzero(buffer, sizeof(buffer));
+				repUser = true;
+				break;
+			}
+		}
+		
+		if (repUser){
+			repUser = false;
+			continue;
+		}
+		
+		if (existeUser(pSocket->username, user)){
+			strcpy (buffer, "Usuario Encontrado");
+			send(pSocket->acceptedSocketFD, buffer, strlen(buffer), 0);
+			bzero(buffer, sizeof(buffer));
+			
+			pSocket->convGrup[i] = getSocket(pSocket->username, user);
+			i++;
+			
+			strcpy (users[k], user);
+			k++;
+		} else {
+			strcpy (buffer, "Usuario NO Encontrado");
+			send(pSocket->acceptedSocketFD, buffer, strlen(buffer), 0);
+			bzero(buffer, sizeof(buffer));
+		}
+	}
+	
+	chatGrup(pSocket);
 }
 
-void cantUsuarios(int socketFD){
+void chatGrup(struct AcceptedSocket *pSocket){
+	while(true){
+		recv(pSocket->acceptedSocketFD, buffer, 1024, 0);
+		
+		if (strcmp(buffer, "_EXIT_") == 0){
+			send(pSocket->convPriv, buffer, strlen(buffer), 0);
+			bzero(buffer, sizeof(buffer));
+			break;
+		}
+		
+		for (int i = 0; i < 10; i++){
+			if (pSocket->convGrup[i] == 0)
+				continue;
+			send(pSocket->convGrup[i], buffer, strlen(buffer), 0);
+		}
+		
+		serverLog = fopen("serverLog.txt", "a");
+		fprintf(serverLog, "%s %s %s", "Se envio el siguiente mensaje grupal -> ", buffer, "\n");
+		fclose(serverLog);
+		
+		bzero(buffer, sizeof(buffer));
+	}
+}
+
+// ===============================================
+
+void cantUsuarios(struct AcceptedSocket *pSocket){
 	sprintf(buffer, "%d", acceptedSocketsCount);
 	
 	printf("Se encontraron %s usuarios conectados.\n\n", buffer);
 	
-	send(socketFD, buffer, strlen(buffer), 0);
+	serverLog = fopen("serverLog.txt", "a");
+	fprintf(serverLog, "%s %s %s", "El usuario ", pSocket->username, " ha consultado la cantidad de usuarios conectados\n");
+	fclose(serverLog);
+	
+	send(pSocket->acceptedSocketFD, buffer, strlen(buffer), 0);
 	bzero(buffer, sizeof(buffer));
 }
 
-void listaUsuarios(int socketFD){
+void listaUsuarios(struct AcceptedSocket *pSocket){
+	serverLog = fopen("serverLog.txt", "a");
+	fprintf(serverLog, "%s %s %s", "El usuario ", pSocket->username, " ha consultado por la lista de usuarios conectados\n");
+	fclose(serverLog);
+
 	printf("Lista de usuarios conectados:\n\n");
 	for (int i = 0; i < 30; i++){
 		if (strcmp(acceptedSockets[i].username, "") == 0){
 			continue;
 		}
+		
 		strcat(buffer, "- ");
 		strcat(buffer, acceptedSockets[i].username);
 		strcat(buffer, "\n");
 	}
 	
 	printf("%s\n\n", buffer);
-	send(socketFD, buffer, strlen(buffer), 0);
+	send(pSocket->acceptedSocketFD, buffer, strlen(buffer), 0);
 	bzero(buffer, sizeof(buffer));
 }
 

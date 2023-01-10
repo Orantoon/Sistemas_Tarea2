@@ -15,29 +15,42 @@
 char buffer[1024];
 
 int client_socket;
+pthread_mutex_t mutex;		// Semaforo
 
 char username [256];
+bool grupal = false;
 
+// Solicitar username al conectarse al server
 void solUsername();
+
+// Thread separada que esta esperando a recibir mensajes de otros clientes
 void threadResp();
 void leerResp();
 
+// Menu principal
 bool menu();
-void nuevaConv();
 
+// Opcion de conversacion privada entre clientes
+void nuevaConv();
 void menuConv();
 void enviarMensaje();
 void enviarArchivo();
 
+// Opcion de conversacion grupal entre clientes
 void nuevoGrupo();
+
+// Otras consultas de los clientes
 void cantUsuarios();
 void listaUsuarios();
 
 // recv(client_socket, buffer, 1024, 0);		RECEIVE
 // send(client_socket, buffer, sizeof(buffer), 0);	SEND
 
+
 int main(int argc, char const *argv[])
 {
+	// ---------- Configuracion de Sockets -----------
+	
 	// create a socket
 	int ret;
 	
@@ -72,7 +85,7 @@ int main(int argc, char const *argv[])
 	
 	printf("Client connected to server.\n\n");
 	
-	// ===============================================
+	// -------------------------------------------
 
 	solUsername(client_socket);
 	threadResp();
@@ -86,14 +99,20 @@ int main(int argc, char const *argv[])
 	// close socket
 	printf("Nos vemos!\n");
 	close(client_socket);
+	
+	pthread_mutex_destroy(&mutex);
 	return 0;
 }
+
+// ===============================================
 
 void solUsername(int client_socket){
 	printf("Inserte su Username: ");
 	scanf("%[^\n]", username);
 	send(client_socket, username, sizeof(username), 0);
 }
+
+// ===============================================
 
 void threadResp(){
 	pthread_t id;
@@ -103,13 +122,30 @@ void threadResp(){
 void leerResp(){
 	char message[1024];
 	bzero(message, sizeof(message));
+	
+	FILE *fp;
+	char *filename = "recv.txt";
+	
 	while (true){
 		recv(client_socket, message, 1024, 0);
+		
+		if (message[0] != '['){	// Se esta enviando un archivo
+			//printf(">> %s <<\n\n", message);
+			printf("Usted ha recibido un archivo, revise el archivo llamado 'recv.txt' que se ha creado en la carpeta.\n\n");
+			
+			fp = fopen(filename, "w");
+			fprintf(fp, "%s", message);
+			bzero(message, sizeof(message));
+			fclose(fp);
+			continue;
+		}
 		
 		printf("%s\n\n", message);
 		bzero(message, sizeof(message));
 	}
 }
+
+// ===============================================
 
 bool menu(){
 	int opcion;
@@ -153,11 +189,12 @@ bool menu(){
 	return false;
 }
 
+// ===============================================
 
 void nuevaConv(){
 	char user [256];
 	while (true){
-		printf("Escriba el Username de la persona con la que quisiera iniciar una nueva conversacion: ");
+		printf("Escriba el Username de la persona con la que quisiera enviar mensajes: ");
 		
 		scanf(" %[^\n]", user);
 		printf("\n\n");
@@ -165,7 +202,9 @@ void nuevaConv(){
 		send(client_socket, user, sizeof(user), 0);
 		
 		// Recibe la respuesta del servidor de si el usuario existe
+		pthread_mutex_lock(&mutex);
 		recv(client_socket, buffer, 1024, 0);
+		pthread_mutex_unlock(&mutex);
 		if (strcmp(buffer, "Usuario Encontrado") == 0){
 			bzero(buffer, sizeof(buffer));
 			break;
@@ -176,6 +215,7 @@ void nuevaConv(){
 	
 	printf("\n--- CHAT CON %s ---\n\n", user);
 
+	grupal = false;
 	menuConv();
 }
 
@@ -216,7 +256,11 @@ void enviarMensaje(){
 	scanf(" %[^\n]", mensaje);
 	printf("\n\n");
 	
-	strcpy(buffer, "[Mensaje Privado | ");
+	if (grupal){
+		strcpy(buffer, "[Mensaje de Grupo | ");
+	} else {
+		strcpy(buffer, "[Mensaje Privado | ");
+	}
 	strcat(buffer, username);
 	strcat(buffer, "]: ");
 	strcat(buffer, mensaje);
@@ -225,18 +269,80 @@ void enviarMensaje(){
 	bzero(buffer, sizeof(buffer));
 }
 
-void enviarArchivo(){ // =================================================
-
+void enviarArchivo(){
+	FILE *fp;
+	char filename[100];
+	
+	printf("Escriba el nombre y extension del archivo que desea enviar: ");
+	scanf("%s", filename);
+	printf("\n\n");
+	
+	fp = fopen(filename, "r");
+	if (fp == NULL){
+		printf("Error al leer el archivo, revise que escribio el nombre y extension correctos.");
+		return;
+	}
+	
+	fgets(buffer, sizeof(buffer), fp);
+	if (send(client_socket, buffer, sizeof(buffer), 0) == -1){
+		perror("Error al enviar el archivo.");
+		return;
+	}
+	
+	printf("El archivo %s se ha enviado correctamente.\n\n", filename);
+	bzero(buffer, sizeof(buffer));
 }
+
+// ===============================================
 
 void nuevoGrupo(){
-	printf("Nuevo grupo\n");
+	bool hayUsers = false;
+	char user [256];
+	
+	while (true){
+		printf("Escriba el Username de una persona que desea agregar al grupo o escriba 'DONE' para finalizar: ");
+		
+		scanf(" %[^\n]", user);
+		printf("\n\n");
+		
+		send(client_socket, user, sizeof(user), 0);
+		
+		if (strcmp(user, "DONE") == 0){
+			break;
+		}
+
+		// Recibe la respuesta del servidor de si el usuario existe
+		pthread_mutex_lock(&mutex);
+		recv(client_socket, buffer, 1024, 0);
+		pthread_mutex_unlock(&mutex);
+		if (strcmp(buffer, "Usuario Encontrado") == 0){
+			hayUsers = true;
+			bzero(buffer, sizeof(buffer));
+			bzero(user, sizeof(user));
+			continue;
+		}
+		printf("El usuario que desea contactar no se ha encontrado. Por favor, vuelva a intentarlo.\n");
+		bzero(buffer, sizeof(buffer));
+		bzero(user, sizeof(user));
+	}
+
+	if (!hayUsers){
+		printf("No ha ingresado ningun usuario, se devolvera al menu a continuacion.\n\n");
+		return;
+	}	
+	
+	grupal = true;
+	menuConv();
 }
+
+// ===============================================
 
 void cantUsuarios(){
 	printf("La cantidad de usuarios conectados es de: ");
 	
+	pthread_mutex_lock(&mutex);
 	recv(client_socket, buffer, 1024, 0);
+	pthread_mutex_unlock(&mutex);
 	printf("%s\n\n", buffer);
 	
 	bzero(buffer, sizeof(buffer));
@@ -245,7 +351,9 @@ void cantUsuarios(){
 void listaUsuarios(){
 	printf("La lista de usuarios conectados es:\n\n");
 	
+	pthread_mutex_lock(&mutex);
 	recv(client_socket, buffer, 1024, 0);
+	pthread_mutex_unlock(&mutex);
 	printf("%s\n\n", buffer);
 	
 	bzero(buffer, sizeof(buffer));
