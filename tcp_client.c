@@ -127,7 +127,9 @@ void leerResp(){
 	char *filename = "recv.txt";
 	
 	while (true){
+		pthread_mutex_lock(&mutex);
 		recv(client_socket, message, 1024, 0);
+		pthread_mutex_unlock(&mutex);
 		
 		if (message[0] != '['){	// Se esta enviando un archivo
 			//printf(">> %s <<\n\n", message);
